@@ -14,6 +14,8 @@ module.exports=(app)=>{
 
     // rate book from 1-5
     router.post("/rate",authMW.verifyToken,bookController.rateBook);
+    router.get("/rate", authMW.verifyToken, bookController.getRatingsForBooks);
+    
     app.use("/shelfmate/api/books",router);
 }
 

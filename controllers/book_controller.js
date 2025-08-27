@@ -11,10 +11,12 @@ exports.searchBooks = async (req, res) => {
       return res.status(400).json({ message: "Search query is required." });
     }
 
+    // Step 1: Fetch from Open Library
     const response = await axios.get(
       `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}`
     );
 
+    // Step 2: Filter and normalize
     const books = response.data.docs
       .filter(book => book.key && book.key.match(/^\/works\/OL[0-9]+W$/))
       .map(book => ({
@@ -22,7 +24,35 @@ exports.searchBooks = async (req, res) => {
         work_key: book.key.replace(/^\/works\//, '').toUpperCase(),
       }));
 
-    res.json(books);
+    const workKeys = books.map(book => book.work_key);
+
+    // Step 3: Fetch rating + reviews from DB
+    const dbBooks = await Book.find(
+      { work_key: { $in: workKeys } },
+      'work_key averageRating ratings'
+    ).populate('ratings.userId', 'name'); // Optional: include username if needed
+
+    // Step 4: Create map: work_key => DB data
+    const bookDataMap = {};
+    dbBooks.forEach(dbBook => {
+      bookDataMap[dbBook.work_key] = {
+        averageRating: dbBook.averageRating,
+        reviews: dbBook.ratings.map(r => ({
+          user: r.userId?.name || r.userId?.toString(), // name if populated
+          rating: r.rating,
+          review: r.review,
+        })),
+      };
+    });
+
+    // Step 5: Attach data to each book
+    const booksWithRatings = books.map(book => ({
+      ...book,
+      averageRating: bookDataMap[book.work_key]?.averageRating ?? null,
+      reviews: bookDataMap[book.work_key]?.reviews ?? [],
+    }));
+
+    res.json(booksWithRatings);
   } catch (error) {
     console.error("SearchBooks error:", error.message);
     res.status(500).json({ message: "Error in fetching books" });
@@ -155,5 +185,42 @@ exports.rateBook = async (req, res) => {
   } catch (err) {
     console.error("RateBook error:", err.message);
     res.status(500).json({ message: "Error rating book." });
+  }
+};
+exports.getRatingsForBooks = async (req, res) => {
+  try {
+    const { work_keys } = req.query;
+    if (!work_keys) {
+      return res.status(400).json({ message: "Work keys are required." });
+    }
+
+    const workKeysArray = work_keys
+      .split(",")
+      .map((key) => key.trim().toUpperCase())
+      .filter((key) => /^OL\d+W$/.test(key));
+
+    if (!workKeysArray.length) {
+      return res.status(400).json({ message: "Invalid work keys provided." });
+    }
+
+    const books = await Book.find({ work_key: { $in: workKeysArray } }).select(
+      "work_key averageRating ratings"
+    );
+
+    const ratingMap = {};
+    workKeysArray.forEach((key) => {
+      const book = books.find((b) => b.work_key === key);
+      ratingMap[key] = book
+        ? {
+            averageRating: book.averageRating || 0,
+            ratings: book.ratings || [],
+          }
+        : { averageRating: 0, ratings: [] };
+    });
+
+    res.status(200).json({ ratings: ratingMap });
+  } catch (err) {
+    console.error("GetRatingsForBooks error:", err.message);
+    res.status(500).json({ message: "Error fetching ratings." });
   }
 };
