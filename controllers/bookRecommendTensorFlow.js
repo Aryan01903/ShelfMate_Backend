@@ -24,47 +24,54 @@ exports.recommendBooks = async (req, res) => {
       });
     }
 
-    // Collect liked subjects, authors, genres
+    // Collect liked subjects
     let subjectsLiked = new Set();
-    let authorsLiked = new Set();
-    let genresLiked = new Set();
-
     ratedBooks.forEach(b => {
       if (Array.isArray(b.subjects)) b.subjects.forEach(s => subjectsLiked.add(s));
-      if (Array.isArray(b.authors)) b.authors.forEach(a => authorsLiked.add(a));
-      if (Array.isArray(b.genres)) b.genres.forEach(g => genresLiked.add(g));
     });
 
-    // Helper: build groups
-    const sameSubject = [];
-    const sameAuthor = [];
-    const sameGenre = [];
-    const extra = [];
+    // Group 1: Similar subjects
+    const sameSubject = books.filter(b =>
+      !b.ratings.some(r => r.userId.toString() === userId) &&
+      Array.isArray(b.subjects) &&
+      b.subjects.some(s => subjectsLiked.has(s))
+    ).map(b => ({ ...b, reason: "Similar subject" }));
 
-    books.forEach(b => {
-      // Skip already rated
-      if (b.ratings.some(r => r.userId.toString() === userId)) return;
+    // Group 2: Most liked books (highest avg rating)
+    const mostLiked = [...books]
+      .filter(b => !b.ratings.some(r => r.userId.toString() === userId))
+      .map(b => {
+        const avgRating = b.ratings.length
+          ? b.ratings.reduce((sum, r) => sum + r.rating, 0) / b.ratings.length
+          : 0;
+        return { ...b, avgRating, reason: "Most liked in database" };
+      })
+      .sort((a, b) => b.avgRating - a.avgRating);
 
-      if (Array.isArray(b.subjects) && b.subjects.some(s => subjectsLiked.has(s))) {
-        sameSubject.push({ ...b, reason: "Similar subject" });
-      } else if (Array.isArray(b.authors) && b.authors.some(a => authorsLiked.has(a))) {
-        sameAuthor.push({ ...b, reason: "Same author" });
-      } else if (Array.isArray(b.genres) && b.genres.some(g => genresLiked.has(g))) {
-        sameGenre.push({ ...b, reason: "Similar genre" });
-      } else {
-        extra.push({ ...b, reason: "Popular/extra recommendation" });
-      }
-    });
+    // Group 3: Popular books (highest number of ratings)
+    const popular = [...books]
+      .filter(b => !b.ratings.some(r => r.userId.toString() === userId))
+      .sort((a, b) => (b.ratings?.length || 0) - (a.ratings?.length || 0))
+      .map(b => ({ ...b, reason: "Popular book" }));
 
-    // Pick as per requirement:
-    const recommendations = [
-      ...sameSubject.slice(0, 4),
-      ...sameAuthor.slice(0, 3),
-      ...sameGenre.slice(0, 2),
-      ...extra.slice(0, 1)
+    // Build final recommendations
+    let recommendations = [
+      ...sameSubject.slice(0, 7),
+      ...mostLiked.slice(0, 2),
+      ...popular.slice(0, 1)
     ];
 
+    // Ensure exactly 10 (fallback: fill with popular if needed)
+    if (recommendations.length < 10) {
+      const extraNeeded = 10 - recommendations.length;
+      recommendations = [
+        ...recommendations,
+        ...popular.slice(0, extraNeeded)
+      ];
+    }
+
     res.status(200).json({
+      count: recommendations.length,
       recommendations: recommendations.map(b => ({
         work_key: b.work_key,
         title: b.title,
