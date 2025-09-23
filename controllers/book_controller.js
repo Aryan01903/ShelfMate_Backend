@@ -204,18 +204,23 @@ exports.getRatingsForBooks = async (req, res) => {
     }
 
     const books = await Book.find({ work_key: { $in: workKeysArray } }).select(
-      "work_key averageRating ratings"
+      "work_key ratings"
     );
 
     const ratingMap = {};
     workKeysArray.forEach((key) => {
       const book = books.find((b) => b.work_key === key);
-      ratingMap[key] = book
-        ? {
-            averageRating: book.averageRating || 0,
-            ratings: book.ratings || [],
-          }
-        : { averageRating: 0, ratings: [] };
+      if (book && book.ratings.length > 0) {
+        const ratings = book.ratings.map(r => r.rating);
+        const sum = ratings.reduce((a, b) => a + b, 0);
+        const average = sum / ratings.length;
+        ratingMap[key] = {
+          averageRating: parseFloat(average.toFixed(2)),
+          ratings: book.ratings,
+        };
+      } else {
+        ratingMap[key] = { averageRating: 0, ratings: [] };
+      }
     });
 
     res.status(200).json({ ratings: ratingMap });
