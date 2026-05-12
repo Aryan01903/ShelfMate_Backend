@@ -11,9 +11,6 @@ app.use(cors({ origin: "*" }));
 
 app.use(express.json());
 
-/**
- * Database Connection :- 
- */
 mongoose.connect(process.env.DB_URL)
 .then(() => {
     console.log("Successfully connected to Database");
