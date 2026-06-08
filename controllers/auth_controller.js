@@ -10,7 +10,6 @@ const generateOtp=()=>{
     return Math.floor(100000+Math.random()*900000).toString();
 }
 
-// Send OTP to Email (Signup start)
 exports.sendOtp=async (req,res)=>{
     const {email} = req.body;
     if(!email){
@@ -26,14 +25,10 @@ exports.sendOtp=async (req,res)=>{
             })
         }
         const otp=generateOtp();
-        await otp_model.deleteMany({email}); // clean old OTPs
-        await otp_model.create({email,otp}); // save new OTP
+        await otp_model.deleteMany({email}); 
+        await otp_model.create({email,otp}); 
 
-        await sendEmail(
-            email,
-            "ShelfMate Signup OTP",
-            `Your OTP is ${otp}. It will expire in 5 minutes.`
-        );
+        await sendEmail( email, otp );
         return res.status(200).send({
             message : "OTP sent successfully to email"
         })
